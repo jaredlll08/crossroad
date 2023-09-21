@@ -5,8 +5,6 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.signature.SignatureReader;
-import org.objectweb.asm.signature.SignatureVisitor;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -20,7 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class IntersectingClassVisitor extends ClassVisitor implements Opcodes {
@@ -36,6 +33,7 @@ public class IntersectingClassVisitor extends ClassVisitor implements Opcodes {
 	private String signature;
 	private String superName;
 	private final Set<String> interfaces = new LinkedHashSet<>();
+    private final Map<InnerClass, Integer> innerclasses = new LinkedHashMap<>();
 	
 	//this is a map from "annotations" to "number of times i've seen this annotation"
 	//n.b. this fails for repeatable annotations
@@ -165,10 +163,15 @@ public class IntersectingClassVisitor extends ClassVisitor implements Opcodes {
 			}
 		};
 	}
-	
-	public void accept(ClassVisitor out) {
+    
+    @Override
+    public void visitInnerClass(String name, String outerName, String innerName, int access) {
+        incr(innerclasses, new InnerClass(name, outerName, innerName, access));
+    }
+    
+    public void accept(ClassVisitor out) {
 		out.visit(version, access, name, signature, superName, interfaces.toArray(new String[0]));
-		
+        filter(innerclasses, classesSeen).forEach(innerclass -> innerclass.accept(out));
 		//for some reason this accept() method takes a methodvisitor instead of a cv
 		//mayb that "visible" parameter which isn't actually stored on the annotation node
 		//grm
@@ -193,4 +196,61 @@ public class IntersectingClassVisitor extends ClassVisitor implements Opcodes {
 			.map(Map.Entry::getKey)
 			.collect(Collectors.toList());
 	}
+    
+    private static class InnerClass {
+        private final String name;
+        private final String outerName;
+        private final String innerName;
+        private final int access;
+        
+        public InnerClass(String name, String outerName, String innerName, int access) {
+            
+            this.name = name;
+            this.outerName = outerName;
+            this.innerName = innerName;
+            this.access = access;
+        }
+        
+        public void accept(ClassVisitor cv){
+            cv.visitInnerClass(this.name(), this.outerName(), this.innerName(), this.access());
+        }
+        
+        public String name() {
+            
+            return name;
+        }
+        
+        public String outerName() {
+            
+            return outerName;
+        }
+        
+        public String innerName() {
+            
+            return innerName;
+        }
+        
+        public int access() {
+            
+            return access;
+        }
+        
+        @Override
+        public boolean equals(Object o) {
+            
+            if(this == o)
+                return true;
+            if(o == null || getClass() != o.getClass())
+                return false;
+            InnerClass that = (InnerClass) o;
+            return access == that.access && Objects.equals(name, that.name) && Objects.equals(outerName, that.outerName) && Objects.equals(innerName, that.innerName);
+        }
+        
+        @Override
+        public int hashCode() {
+            
+            return Objects.hash(name, outerName, innerName, access);
+        }
+        
+    }
 }
